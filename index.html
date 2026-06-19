@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minesweeper: Explorer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #1a1a2e;
+            --bg-light: #2d2d44;
+            --tile-hidden: #4e4e6a;
+            --tile-hidden-light: #6a6a8a;
+            --tile-revealed: #2a2a3e;
+            --accent: #e94560;
+            --text: #ffffff;
+            --text-dim: #aaaaaa;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text);
+            font-family: 'Press Start 2P', cursive;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+        }
+        #game-container { position: relative; width: 100%; height: 100%; }
+        canvas {
+            display: block;
+            background-color: var(--bg-dark);
+            image-rendering: pixelated;
+        }
+        .ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column;
+        }
+        #hud {
+            display: flex; justify-content: space-between; padding: 20px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+        }
+        .hud-box {
+            background: rgba(42, 42, 62, 0.9); border: 2px solid var(--tile-hidden-light);
+            padding: 10px 15px; font-size: 16px; box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+        }
+        .screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 20, 0.85); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; pointer-events: auto; z-index: 10;
+            backdrop-filter: blur(4px);
+        }
+        .hidden { display: none; }
+        h1 { font-size: 36px; margin-bottom: 10px; color: var(--accent); text-shadow: 4px 4px 0 #000; }
+        h2 { font-size: 20px; margin-bottom: 30px; color: var(--text); }
+        .btn-group { display: flex; flex-direction: column; gap: 15px; width: 280px; }
+        button {
+            font-family: 'Press Start 2P', cursive; font-size: 14px; padding: 15px;
+            background: var(--tile-hidden); color: var(--text); border: 2px solid var(--tile-hidden-light);
+            cursor: pointer; transition: all 0.1s; box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+        }
+        button:hover { background: var(--tile-hidden-light); transform: translateY(-2px); box-shadow: 0 6px 0 rgba(0,0,0,0.3); }
+        button:active { transform: translateY(2px); box-shadow: 0 0 0 rgba(0,0,0,0.3); }
+        button.primary { background: var(--accent); border-color: #ff6b81; }
+        button.primary:hover { background: #ff6b81; }
+        .controls-info { margin-top: 30px; font-size: 10px; color: var(--text-dim); text-align: center; line-height: 1.8; }
+        .stats { font-size: 12px; margin-bottom: 20px; text-align: center; line-height: 2; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div class="ui-layer">
+        <div id="hud" class="hidden">
+            <div class="hud-box" id="mine-counter">Mines: 0</div>
+            <div class="hud-box" id="timer">Time: 000</div>
+        </div>
+    </div>
+
+    <div id="main-menu" class="screen">
+        <h1>EXPLORER</h1>
+        <h2>MINESWEEPER</h2>
+        <div class="btn-group">
+            <button class="primary" onclick="Game.startGame('beginner')">Beginner (9x9)</button>
+            <button onclick="Game.startGame('intermediate')">Intermediate (16x16)</button>
+            <button onclick="Game.startGame('expert')">Expert (30x16)</button>
+            <button onclick="UI.openDaily()">Daily Challenge</button>
+            <button onclick="UI.openSkins()">Character Skins</button>
+        </div>
+        <div class="controls-info">
+            WASD/ARROWS: MOVE &nbsp;|&nbsp; SPACE: JUMP<br>
+            E: REVEAL &nbsp;|&nbsp; F: FLAG &nbsp;|&nbsp; R: RESTART<br>
+            SHIFT: DASH
+        </div>
+    </div>
+
+    <div id="pause-menu" class="screen hidden">
+        <h1>PAUSED</h1>
+        <div class="btn-group">
+            <button class="primary" onclick="Game.resume()">Resume</button>
+            <button onclick="Game.restart()">Restart</button>
+            <button onclick="UI.goToMenu()">Main Menu</button>
+        </div>
+    </div>
+
+    <div id="game-over" class="screen hidden">
+        <h1 style="color: #e94560;">BOOM!</h1>
+        <div class="stats" id="game-over-stats"></div>
+        <div class="btn-group">
+            <button class="primary" onclick="Game.restart()">Try Again</button>
+            <button onclick="UI.goToMenu()">Main Menu</button>
+        </div>
+    </div>
+
+    <div id="victory" class="screen hidden">
+        <h1 style="color: #4ecca3;">VICTORY!</h1>
+        <div class="stats" id="victory-stats"></div>
+        <div class="btn-group">
+            <button class="primary" onclick="Game.restart()">Play Again</button>
+            <button onclick="UI.goToMenu()">Main Menu</button>
+        </div>
+    </div>
+
+    <div id="skins-menu" class="screen hidden">
+        <h1>SKINS</h1>
+        <div class="skin-grid" id="skin-grid-container" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;"></div>
+        <button onclick="UI.goToMenu()">Back</button>
+    </div>
+</div>
+
+<script>
+// =====================================================================
+// UTILITY & GLOBALS
+// =====================================================================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    ctx.imageSmoothingEnabled = false;
+    if (canvas.width === 0 || canvas.height === 0) console.error("Canvas dimensions are zero!");
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+class SeededRNG {
+    constructor(seed) { this.seed = seed; }
+    next() {
+        this.seed = (this.seed * 9301 + 49297) % 233280;
+        return this.seed / 233280;
+    }
+}
+
+const AudioManager = {
+    ctx: null,
+    init() {
+        if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    },
+    play(type) {
+        try {
+            this.init();
+            const t = this.ctx.currentTime;
+            const o = this.ctx.createOscillator();
+            const g = this.ctx.createGain();
+            o.connect(g); g.connect(this.ctx.destination);
+
+            switch(type) {
+                case 'jump':
+                    o.type = 'square'; o.frequency.setValueAtTime(300, t); o.frequency.exponentialRampToValueAtTime(600, t + 0.1);
+                    g.gain.setValueAtTime(0.1, t); g.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+                    o.start(t); o.stop(t + 0.1); break;
+                case 'land':
+                    o.type = 'sawtooth'; o.frequency.setValueAtTime(100, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.05);
+                    g.gain.setValueAtTime(0.1, t); g.gain.exponentialRampToValueAtTime(0.01, t + 0.05);
+                    o.start(t); o.stop(t + 0.05); break;
+                case 'reveal':
+                    o.type = 'triangle'; o.frequency.setValueAtTime(800, t); o.frequency.exponentialRampToValueAtTime(1200, t + 0.05);
+                    g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.01, t + 0.05);
+                    o.start(t); o.stop(t + 0.05); break;
+                case 'flag':
+                    o.type = 'square'; o.frequency.setValueAtTime(400, t); o.frequency.setValueAtTime(600, t + 0.05);
+                    g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+                    o.start(t); o.stop(t + 0.1); break;
+                case 'explosion':
+                    const bufferSize = this.ctx.sampleRate * 0.5;
+                    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+                    const noise = this.ctx.createBufferSource();
+                    noise.buffer = buffer;
+                    const noiseGain = this.ctx.createGain();
+                    noise.connect(noiseGain); noiseGain.connect(this.ctx.destination);
+                    noiseGain.gain.setValueAtTime(0.3, t); noiseGain.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+                    noise.start(t); 
+                    o.type = 'sawtooth'; o.frequency.setValueAtTime(80, t); o.frequency.exponentialRampToValueAtTime(20, t + 0.5);
+                    g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+                    o.start(t); o.stop(t + 0.5); break;
+                case 'win':
+                    const notes = [523, 659, 784, 1046];
+                    notes.forEach((freq, i) => {
+                        const osc = this.ctx.createOscillator();
+                        const gain = this.ctx.createGain();
+                        osc.connect(gain); gain.connect(this.ctx.destination);
+                        osc.type = 'square'; osc.frequency.value = freq;
+                        gain.gain.setValueAtTime(0.1, t + i * 0.1); gain.gain.exponentialRampToValueAtTime(0.01, t + i * 0.1 + 0.1);
+                        osc.start(t + i * 0.1); osc.stop(t + i * 0.1 + 0.1);
+                    }); break;
+            }
+        } catch(e) { console.error("Audio Error:", e); }
+    }
+};
+
+const Input = {
+    keys: {},
+    init() {
+        window.addEventListener('keydown', (e) => {
+            this.keys[e.code] = true;
+            if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+            if (typeof Game !== 'undefined') Game.handleKeyPress(e.code);
+        });
+        window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
+    },
+    isDown(code) { return this.keys[code]; }
+};
+
+const Storage = {
+    get(key, def) { 
+        try { 
+            const v = localStorage.getItem(key); 
+            return v ? JSON.parse(v) : def; 
+        } catch(e) { 
+            console.error("Storage Get Error:", e);
+            return def; 
+        } 
+    },
+    set(key, val) { 
+        try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { console.error("Storage Set Error:", e); } 
+    }
+};
+
+// =====================================================================
+// PARTICLE SYSTEM
+// =====================================================================
+class Particle {
+    constructor(x, y, color, vx, vy, life, size = 4) {
+        this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+        this.color = color; this.life = life; this.maxLife = life;
+        this.size = size; this.gravity = 0.2;
+    }
+    update(dt) {
+        this.x += this.vx * dt; this.y += this.vy * dt;
+        this.vy += this.gravity * dt; this.life -= dt;
+    }
+    draw(ctx) {
+        const alpha = Math.max(0, this.life / this.maxLife);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x - this.size/2, this.y - this.size/2, this.size, this.size);
+        ctx.globalAlpha = 1;
+    }
+}
+
+// =====================================================================
+// MINEFIELD SYSTEM
+// =====================================================================
+class Tile {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.isMine = false; this.isRevealed = false; this.isFlagged = false;
+        this.adjacentMines = 0; this.revealDelay = 0; this.flagBounce = 0;
+    }
+}
+
+class Minefield {
+    constructor(cols, rows, mineCount, seed = null) {
+        this.cols = cols; this.rows = rows;
+        this.mineCount = mineCount; this.tileSize = 40;
+        this.grid = []; this.firstReveal = true;
+        this.revealedCount = 0; this.flagsPlaced = 0;
+        this.rng = seed ? new SeededRNG(seed) : null;
+
+        for (let y = 0; y < rows; y++) {
+            this.grid[y] = [];
+            for (let x = 0; x < cols; x++) this.grid[y][x] = new Tile(x, y);
+        }
+    }
+
+    generateMines(safeX, safeY) {
+        let minesToPlace = this.mineCount;
+        const safeZone = [];
+        for(let dy=-1; dy<=1; dy++) for(let dx=-1; dx<=1; dx++) safeZone.push({x: safeX+dx, y: safeY+dy});
+
+        while (minesToPlace > 0) {
+            const rx = Math.floor(this.rng ? this.rng.next() * this.cols : Math.random() * this.cols);
+            const ry = Math.floor(this.rng ? this.rng.next() * this.rows : Math.random() * this.rows);
+            const tile = this.grid[ry][rx];
+            if (!tile.isMine && !safeZone.some(p => p.x === rx && p.y === ry)) {
+                tile.isMine = true; minesToPlace--;
+            }
+        }
+
+        for (let y = 0; y < this.rows; y++) {
+            for (let x = 0; x < this.cols; x++) {
+                if (!this.grid[y][x].isMine) {
+                    let count = 0;
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            if (dx === 0 && dy === 0) continue;
+                            const nx = x + dx, ny = y + dy;
+                            if (nx >= 0 && nx < this.cols && ny >= 0 && ny < this.rows) {
+                                if (this.grid[ny][nx].isMine) count++;
+                            }
+                        }
+                    }
+                    this.grid[y][x].adjacentMines = count;
+                }
+            }
+        }
+    }
+
+    revealTile(x, y, depth = 0) {
+        if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) return;
+        const tile = this.grid[y][x];
+        if (tile.isRevealed || tile.isFlagged) return;
+
+        if (this.firstReveal) {
+            this.generateMines(x, y);
+            this.firstReveal = false;
+            Game.startTimer();
+        }
+
+        tile.isRevealed = true; tile.revealDelay = depth * 0.02;
+        this.revealedCount++;
+
+        if (tile.isMine) { Game.gameOver(false); return; }
+        AudioManager.play('reveal');
+
+        if (tile.adjacentMines === 0) {
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    this.revealTile(x + dx, y + dy, depth + 1);
+                }
+            }
+        }
+
+        if (this.revealedCount === this.cols * this.rows - this.mineCount) Game.gameOver(true);
+    }
+
+    toggleFlag(x, y) {
+        const tile = this.grid[y][x];
+        if (tile.isRevealed) return;
+        tile.isFlagged = !tile.isFlagged; tile.flagBounce = 1;
+        this.flagsPlaced += tile.isFlagged ? 1 : -1;
+        AudioManager.play('flag');
+    }
+
+    draw(ctx, camera) {
+        const ts = this.tileSize;
+        const startX = Math.floor(camera.x / ts);
+        const endX = Math.ceil((camera.x + canvas.width) / ts);
+        const startY = Math.floor(camera.y / ts);
+        const endY = Math.ceil((camera.y + canvas.height) / ts);
+
+        for (let y = Math.max(0, startY); y < Math.min(this.rows, endY); y++) {
+            for (let x = Math.max(0, startX); x < Math.min(this.cols, endX); x++) {
+                const tile = this.grid[y][x];
+                const screenX = x * ts - camera.x;
+                const screenY = y * ts - camera.y;
+
+                if (tile.isRevealed && tile.revealDelay <= 0) this.drawRevealedTile(ctx, tile, screenX, screenY, ts);
+                else this.drawHiddenTile(ctx, tile, screenX, screenY, ts);
+                
+                if (tile.revealDelay > 0) tile.revealDelay -= 0.016;
+                if (tile.flagBounce > 0) tile.flagBounce -= 0.05;
+            }
+        }
+    }
+
+    drawHiddenTile(ctx, tile, x, y, ts) {
+        ctx.fillStyle = "#4e4e6a"; ctx.fillRect(x, y, ts, ts);
+        ctx.fillStyle = "#6a6a8a"; ctx.fillRect(x, y, ts, 4); ctx.fillRect(x, y, 4, ts);
+        ctx.fillStyle = "#3a3a4e"; ctx.fillRect(x, y + ts - 4, ts, 4); ctx.fillRect(x + ts - 4, y, 4, ts);
+
+        if (tile.isFlagged) {
+            const bounce = tile.flagBounce > 0 ? Math.sin(tile.flagBounce * Math.PI) * 5 : 0;
+            ctx.fillStyle = "#fff"; ctx.fillRect(x + ts/2 - 1, y + 10 - bounce, 2, 20);
+            ctx.fillStyle = "#e94560"; ctx.fillRect(x + ts/2 + 1, y + 10 - bounce, 10, 8);
+        }
+    }
+
+    drawRevealedTile(ctx, tile, x, y, ts) {
+        ctx.fillStyle = "#2a2a3e"; ctx.fillRect(x, y, ts, ts);
+        ctx.strokeStyle = "#202030"; ctx.lineWidth = 1; ctx.strokeRect(x, y, ts, ts);
+
+        if (tile.isMine) {
+            ctx.fillStyle = "#e94560"; ctx.fillRect(x, y, ts, ts);
+            ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(x + ts/2, y + ts/2, 10, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+            for(let i=0; i<8; i++) {
+                const ang = (i/8) * Math.PI * 2;
+                ctx.beginPath(); ctx.moveTo(x + ts/2, y + ts/2);
+                ctx.lineTo(x + ts/2 + Math.cos(ang)*12, y + ts/2 + Math.sin(ang)*12); ctx.stroke();
+            }
+        } else if (tile.adjacentMines > 0) {
+            const colors = ["", "#4ecca3", "#a8e6cf", "#ffd166", "#ef476f", "#118ab2", "#073b4c", "#7209b7", "#f72585"];
+            ctx.fillStyle = colors[tile.adjacentMines];
+            ctx.font = "20px 'Press Start 2P'"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText(tile.adjacentMines, x + ts/2, y + ts/2 + 2);
+        }
+    }
+}
+
+// =====================================================================
+// CHARACTER CONTROLLER
+// =====================================================================
+class Player {
+    constructor(minefield, startX, startY) {
+        this.minefield = minefield; this.tileSize = minefield.tileSize;
+        this.x = startX * this.tileSize + this.tileSize / 2;
+        this.y = startY * this.tileSize + this.tileSize / 2;
+        this.tx = this.x; this.ty = this.y;
+        this.z = 0; this.vz = 0; this.isJumping = false;
+        this.squash = 1; this.stretch = 1; this.facing = 1;
+        this.dashCooldown = 0; this.dashTrail = [];
+        this.skin = Game.selectedSkin;
+        this.nearFlag = false;
+    }
+
+    update(dt) {
+        const ts = this.tileSize;
+        const isDashing = (Input.isDown('ShiftLeft') || Input.isDown('ShiftRight'));
+        const speed = isDashing ? 8 : 4;
+        
+        const onGridX = Math.abs(this.x - this.tx) < 1;
+        const onGridY = Math.abs(this.y - this.ty) < 1;
+
+        if (onGridX && onGridY && !this.isJumping) {
+            let moved = false;
+            if (Input.isDown('ArrowUp') || Input.isDown('KeyW')) { this.ty -= ts; moved = true; this.facing = 0; }
+            else if (Input.isDown('ArrowDown') || Input.isDown('KeyS')) { this.ty += ts; moved = true; this.facing = 2; }
+            else if (Input.isDown('ArrowLeft') || Input.isDown('KeyA')) { this.tx -= ts; moved = true; this.facing = 3; }
+            else if (Input.isDown('ArrowRight') || Input.isDown('KeyD')) { this.tx += ts; moved = true; this.facing = 1; }
+
+            if (moved) {
+                const half = ts / 2;
+                this.tx = Math.max(half, Math.min(this.minefield.cols * ts - half, this.tx));
+                this.ty = Math.max(half, Math.min(this.minefield.rows * ts - half, this.ty));
+                if (speed === 8 && this.dashCooldown <= 0) {
+                    this.dashCooldown = 1.0;
+                    Game.spawnDustParticles(this.x, this.y + half, 5, "#fff");
+                }
+            }
+        }
+
+        const moveSpeed = isDashing ? 0.25 : 0.15;
+        this.x += (this.tx - this.x) * moveSpeed;
+        this.y += (this.ty - this.y) * moveSpeed;
+
+        if (Input.isDown('Space') && !this.isJumping && onGridX && onGridY) {
+            this.vz = 8; this.isJumping = true;
+            this.stretch = 1.3; this.squash = 0.7;
+            AudioManager.play('jump');
+        }
+
+        if (this.isJumping) {
+            this.z += this.vz; this.vz -= 0.5;
+            if (this.z <= 0) {
+                this.z = 0; this.vz = 0; this.isJumping = false;
+                this.squash = 1.3; this.stretch = 0.7;
+                AudioManager.play('land');
+                Game.spawnDustParticles(this.x, this.y + this.tileSize/2, 6, "#aaa");
+            }
+        }
+
+        this.squash += (1 - this.squash) * 0.2;
+        this.stretch += (1 - this.stretch) * 0.2;
+        if (this.dashCooldown > 0) this.dashCooldown -= dt;
+
+        if (isDashing && (Math.abs(this.x-this.tx) > 2 || Math.abs(this.y-this.ty) > 2)) {
+            this.dashTrail.push({x: this.x, y: this.y - this.z, life: 0.2});
+        }
+        this.dashTrail = this.dashTrail.filter(p => { p.life -= dt; return p.life > 0; });
+        this.nearFlag = this.checkNearFlag();
+    }
+
+    checkNearFlag() {
+        const tx = Math.floor(this.x / this.tileSize);
+        const ty = Math.floor(this.y / this.tileSize);
+        for(let dy=-1; dy<=1; dy++) {
+            for(let dx=-1; dx<=1; dx++) {
+                if(tx+dx >= 0 && tx+dx < this.minefield.cols && ty+dy >= 0 && ty+dy < this.minefield.rows) {
+                    if(this.minefield.grid[ty+dy][tx+dx].isFlagged) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    getCurrentTile() {
+        const tx = Math.floor(this.x / this.tileSize);
+        const ty = Math.floor(this.y / this.tileSize);
+        if (!this.minefield.grid[ty] || !this.minefield.grid[ty][tx]) return { x: 0, y: 0 };
+        return this.minefield.grid[ty][tx];
+    }
+
+    draw(ctx, camera) {
+        const screenX = this.x - camera.x;
+        const screenY = this.y - camera.y - this.z;
+        const size = this.tileSize * 0.6;
+
+        this.dashTrail.forEach(p => {
+            ctx.globalAlpha = p.life * 2;
+            ctx.fillStyle = this.skin.body;
+            ctx.fillRect(p.x - camera.x - size/2, p.y - camera.y - size/2, size, size);
+            ctx.globalAlpha = 1;
+        });
+
+        const shadowScale = 1 - (this.z / 100);
+        ctx.fillStyle = `rgba(0,0,0,${0.4 * shadowScale})`;
+        ctx.beginPath();
+        ctx.ellipse(this.x - camera.x, this.y - camera.y + size/2, (size/2)*shadowScale, (size/4)*shadowScale, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        const currTile = this.getCurrentTile();
+        ctx.strokeStyle = this.nearFlag ? "#ffd166" : "#fff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(currTile.x * this.tileSize - camera.x, currTile.y * this.tileSize - camera.y, this.tileSize, this.tileSize);
+
+        const w = size * this.squash;
+        const h = size * this.stretch;
+        
+        ctx.fillStyle = this.skin.body;
+        ctx.fillRect(screenX - w/2, screenY - h/2, w, h);
+        
+        ctx.strokeStyle = this.skin.outline;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(screenX - w/2, screenY - h/2, w, h);
+
+        ctx.fillStyle = "#fff";
+        if (this.facing === 1 || this.facing === 3) {
+            ctx.fillRect(screenX - 2, screenY - 4, 6, 6);
+            ctx.fillRect(screenX + 8, screenY - 4, 6, 6);
+            ctx.fillStyle = "#000";
+            const offsetX = this.facing === 1 ? 2 : -2;
+            ctx.fillRect(screenX - 2 + offsetX, screenY - 2, 3, 3);
+            ctx.fillRect(screenX + 8 + offsetX, screenY - 2, 3, 3);
+        } else {
+            ctx.fillRect(screenX - 7, screenY - 4, 6, 6);
+            ctx.fillRect(screenX + 1, screenY - 4, 6, 6);
+            ctx.fillStyle = "#000";
+            const offsetY = this.facing === 0 ? -2 : 0;
+            ctx.fillRect(screenX - 6, screenY - 4 + offsetY, 3, 3);
+            ctx.fillRect(screenX + 2, screenY - 4 + offsetY, 3, 3);
+        }
+
+        if (this.nearFlag) {
+            ctx.fillStyle = "#4ecca3";
+            const sweatY = screenY - 10 + Math.sin(performance.now()/100) * 2;
+            ctx.fillRect(screenX + 10, sweatY, 3, 4);
+        }
+    }
+}
+
+// =====================================================================
+// CAMERA SYSTEM
+// =====================================================================
+class Camera {
+    constructor() {
+        this.x = 0; this.y = 0;
+        this.targetX = 0; this.targetY = 0;
+        this.shakeIntensity = 0; this.shakeDuration = 0;
+    }
+
+    follow(target, gridWidth, gridHeight) {
+        let targetX = target.x - canvas.width / 2;
+        let targetY = target.y - canvas.height / 2;
+
+        // FIX: Properly center board if smaller than viewport
+        if (gridWidth < canvas.width) {
+            targetX = (gridWidth - canvas.width) / 2;
+        } else {
+            targetX = Math.max(0, Math.min(gridWidth - canvas.width, targetX));
+        }
+
+        if (gridHeight < canvas.height) {
+            targetY = (gridHeight - canvas.height) / 2;
+        } else {
+            targetY = Math.max(0, Math.min(gridHeight - canvas.height, targetY));
+        }
+
+        this.targetX = targetX;
+        this.targetY = targetY;
+
+        this.x += (this.targetX - this.x) * 0.1;
+        this.y += (this.targetY - this.y) * 0.1;
+    }
+
+    shake(intensity, duration) {
+        this.shakeIntensity = intensity;
+        this.shakeDuration = duration;
+    }
+
+    applyShake() {
+        if (this.shakeDuration > 0) {
+            this.x += (Math.random() - 0.5) * this.shakeIntensity;
+            this.y += (Math.random() - 0.5) * this.shakeIntensity;
+            this.shakeDuration -= 0.02;
+        }
+    }
+}
+
+// =====================================================================
+// MAIN GAME CONTROLLER
+// =====================================================================
+const Game = {
+    state: 'menu',
+    minefield: null,
+    player: null,
+    camera: new Camera(),
+    particles: [],
+    startTime: 0,
+    elapsedTime: 0,
+    difficulty: 'beginner',
+    dailySeed: null,
+    selectedSkin: { id: 'green', body: "#4ecca3", outline: "#1a1a2e" },
+    unlockedSkins: ['green'],
+
+    init() {
+        try {
+            Input.init();
+            this.unlockedSkins = Storage.get('ms_skins_unlocked', ['green']);
+            
+            // FIX: Ensure selectedSkin is fully valid
+            this.selectedSkin = Storage.get('ms_skins_selected', null);
+            if (!this.selectedSkin || !this.selectedSkin.body) {
+                this.selectedSkin = this.getDefaultSkin('green');
+            }
+            
+            UI.init();
+            this.gameLoop();
+        } catch(e) {
+            console.error("Init Error:", e);
+            this.displayError(e);
+        }
+    },
+
+    getDefaultSkin(id) {
+        const map = {
+            green: { id: 'green', body: "#4ecca3", outline: "#1a1a2e" },
+            blue: { id: 'blue', body: "#118ab2", outline: "#073b4c" },
+            red: { id: 'red', body: "#ef476f", outline: "#073b4c" },
+            gold: { id: 'gold', body: "#ffd166", outline: "#073b4c" }
+        };
+        return map[id];
+    },
+
+    startGame(difficulty) {
+        this.difficulty = difficulty;
+        this.dailySeed = null;
+        this.setupBoard();
+    },
+
+    openDaily() {
+        const today = new Date();
+        this.dailySeed = today.getFullYear() * 10000 + (today.getMonth()+1) * 100 + today.getDate();
+        this.difficulty = 'expert';
+        this.setupBoard();
+    },
+
+    setupBoard() {
+        let cols, rows, mines;
+        if (this.difficulty === 'beginner') { cols = 9; rows = 9; mines = 10; }
+        else if (this.difficulty === 'intermediate') { cols = 16; rows = 16; mines = 40; }
+        else { cols = 30; rows = 16; mines = 99; }
+
+        this.minefield = new Minefield(cols, rows, mines, this.dailySeed);
+        this.player = new Player(this.minefield, Math.floor(cols/2), Math.floor(rows/2));
+        this.player.skin = this.selectedSkin;
+        this.particles = [];
+        this.elapsedTime = 0; this.startTime = 0;
+
+        // FIX: Proper initial camera centering
+        const gridW = this.minefield.cols * this.minefield.tileSize;
+        const gridH = this.minefield.rows * this.minefield.tileSize;
+        if (gridW < canvas.width) this.camera.x = (gridW - canvas.width) / 2;
+        else this.camera.x = this.player.x - canvas.width / 2;
+        
+        if (gridH < canvas.height) this.camera.y = (gridH - canvas.height) / 2;
+        else this.camera.y = this.player.y - canvas.height / 2;
+
+        this.state = 'playing';
+        UI.updateHUD();
+        UI.hideAll();
+        UI.showHUD(); // FIX: Show HUD after hiding everything
+        
+        console.log("Game Started");
+        console.log("Board Created");
+        console.log("Player Created");
+    },
+
+    startTimer() {
+        if (this.startTime === 0) this.startTime = performance.now();
+    },
+
+    handleKeyPress(code) {
+        if (code === 'KeyR' && (this.state === 'playing' || this.state === 'gameover' || this.state === 'victory')) {
+            this.restart(); return;
+        }
+        if (code === 'Escape' || code === 'KeyP') {
+            if (this.state === 'playing') { this.state = 'paused'; UI.show('pause-menu'); }
+            else if (this.state === 'paused') { this.resume(); }
+            return;
+        }
+
+        if (this.state !== 'playing') return;
+
+        if (code === 'KeyE') {
+            const tile = this.player.getCurrentTile();
+            if (tile && !tile.isRevealed && !tile.isFlagged) this.minefield.revealTile(tile.x, tile.y);
+        } else if (code === 'KeyF') {
+            const tile = this.player.getCurrentTile();
+            if (tile && !tile.isRevealed) {
+                this.minefield.toggleFlag(tile.x, tile.y);
+                UI.updateHUD();
+            }
+        }
+    },
+
+    gameOver(victory) {
+        this.state = victory ? 'victory' : 'gameover';
+        
+        if (victory) {
+            AudioManager.play('win');
+            if (this.difficulty === 'beginner' && !this.unlockedSkins.includes('blue')) {
+                this.unlockedSkins.push('blue'); Storage.set('ms_skins_unlocked', this.unlockedSkins);
+            }
+            if (this.difficulty === 'intermediate' && !this.unlockedSkins.includes('red')) {
+                this.unlockedSkins.push('red'); Storage.set('ms_skins_unlocked', this.unlockedSkins);
+            }
+            if (this.difficulty === 'expert' && !this.unlockedSkins.includes('gold')) {
+                this.unlockedSkins.push('gold'); Storage.set('ms_skins_unlocked', this.unlockedSkins);
+            }
+            UI.showVictory();
+        } else {
+            AudioManager.play('explosion');
+            this.camera.shake(20, 1.5);
+            this.minefield.grid.forEach(row => row.forEach(t => { if(t.isMine) t.isRevealed = true; }));
+            
+            for(let i=0; i<50; i++) {
+                this.particles.push(new Particle(
+                    this.player.x, this.player.y, 
+                    Math.random() > 0.5 ? "#e94560" : "#ffd166",
+                    (Math.random()-0.5)*15, (Math.random()-0.5)*15 - 5, 1.5, 8
+                ));
+            }
+            setTimeout(() => UI.showGameOver(), 1500);
+        }
+    },
+
+    restart() { this.setupBoard(); },
+    resume() { this.state = 'playing'; UI.hideAll(); UI.showHUD(); },
+
+    spawnDustParticles(x, y, count, color) {
+        for(let i=0; i<count; i++) {
+            this.particles.push(new Particle(
+                x, y, color, (Math.random()-0.5)*4, -Math.random()*3, 0.5, 4
+            ));
+        }
+    },
+
+    update(dt) {
+        if (this.state === 'playing') {
+            this.player.update(dt);
+            this.camera.follow(
+                this.player, 
+                this.minefield.cols * this.minefield.tileSize, 
+                this.minefield.rows * this.minefield.tileSize
+            );
+            
+            if (this.startTime > 0) {
+                this.elapsedTime = (performance.now() - this.startTime) / 1000;
+                UI.updateTimer(Math.floor(this.elapsedTime));
+            }
+        }
+        this.particles = this.particles.filter(p => { p.update(dt); return p.life > 0; });
+        this.camera.applyShake();
+    },
+
+    render() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#151523"; // Dark BG
+        ctx.fillRect(0,0,canvas.width, canvas.height);
+
+        if (this.minefield) {
+            // DEBUG: Draw bright background behind board
+            ctx.fillStyle = "rgba(255, 255, 0, 0.1)"; 
+            ctx.fillRect(0 - this.camera.x, 0 - this.camera.y, this.minefield.cols * this.minefield.tileSize, this.minefield.rows * this.minefield.tileSize);
+            
+            this.minefield.draw(ctx, this.camera);
+            if (this.player) this.player.draw(ctx, this.camera);
+
+            // DEBUG: Test rectangles at (0,0) and Player Spawn
+            ctx.fillStyle = "rgba(255, 0, 0, 0.8)";
+            ctx.fillRect(0 - this.camera.x, 0 - this.camera.y, 40, 40);
+            if (this.player) {
+                ctx.fillStyle = "rgba(0, 255, 0, 0.8)";
+                ctx.fillRect(this.player.tx - this.camera.x - 20, this.player.ty - this.camera.y - 20, 40, 40);
+            }
+        }
+
+        this.particles.forEach(p => p.draw(ctx));
+
+        // DEBUG OVERLAY
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(10, canvas.height - 110, 300, 100);
+        ctx.fillStyle = "#0f0";
+        ctx.font = "14px monospace";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        let dbg = `DEBUG OVERLAY\nState: ${this.state}\nCanvas: ${canvas.width}x${canvas.height}\n`;
+        if (this.minefield) dbg += `Board: ${this.minefield.cols}x${this.minefield.rows}\n`;
+        if (this.player) dbg += `Player: ${Math.floor(this.player.x)},${Math.floor(this.player.y)}\n`;
+        if (this.camera) dbg += `Camera: ${Math.floor(this.camera.x)},${Math.floor(this.camera.y)}\n`;
+        ctx.fillText(dbg, 20, canvas.height - 100);
+    },
+
+    displayError(e) {
+        let errDiv = document.getElementById('error-display');
+        if (!errDiv) {
+            errDiv = document.createElement('div');
+            errDiv.id = 'error-display';
+            errDiv.style.position = 'fixed';
+            errDiv.style.top = '0'; errDiv.style.left = '0';
+            errDiv.style.width = '100%'; errDiv.style.height = '100%';
+            errDiv.style.background = 'rgba(200, 0, 0, 0.9)';
+            errDiv.style.color = 'white';
+            errDiv.style.fontFamily = 'monospace';
+            errDiv.style.padding = '20px';
+            errDiv.style.zIndex = '1000';
+            errDiv.style.whiteSpace = 'pre-wrap';
+            errDiv.style.overflow = 'auto';
+            document.body.appendChild(errDiv);
+        }
+        errDiv.innerText = "FATAL ERROR:\n" + e.message + "\n\nStack:\n" + e.stack;
+    },
+
+    gameLoop() {
+        console.log("Render Running");
+        const loop = (time) => {
+            const dt = 0.016;
+            try {
+                this.update(dt);
+                this.render();
+            } catch (e) {
+                console.error("Update/Render Error:", e);
+                this.displayError(e);
+                return; // Stop loop to prevent spamming errors
+            }
+            requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+    }
+};
+
+// =====================================================================
+// UI MANAGER
+// =====================================================================
+const UI = {
+    init() {
+        this.buildSkinGrid();
+    },
+    hideAll() {
+        document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
+        document.getElementById('hud').classList.add('hidden');
+    },
+    show(id) {
+        this.hideAll();
+        document.getElementById(id).classList.remove('hidden');
+    },
+    showHUD() {
+        document.getElementById('hud').classList.remove('hidden');
+    },
+    updateHUD() {
+        if (!Game.minefield) return;
+        const minesLeft = Game.minefield.mineCount - Game.minefield.flagsPlaced;
+        document.getElementById('mine-counter').innerText = `Mines: ${minesLeft}`;
+        document.getElementById('timer').innerText = `Time: ${Game.elapsedTime.toFixed(0).padStart(3, '0')}`;
+    },
+    updateTimer(time) {
+        document.getElementById('timer').innerText = `Time: ${String(time).padStart(3, '0')}`;
+    },
+    showGameOver() {
+        Game.state = 'gameover';
+        document.getElementById('game-over-stats').innerText = `You hit a mine!\nTime: ${Math.floor(Game.elapsedTime)}s`;
+        this.show('game-over');
+    },
+    showVictory() {
+        document.getElementById('victory-stats').innerText = `Board Cleared!\nTime: ${Math.floor(Game.elapsedTime)}s\nDifficulty: ${Game.difficulty}`;
+        this.show('victory');
+    },
+    goToMenu() {
+        Game.state = 'menu';
+        this.show('main-menu');
+    },
+    openDaily() {
+        Game.openDaily();
+        this.showHUD();
+    },
+    openSkins() {
+        this.buildSkinGrid();
+        this.show('skins-menu');
+    },
+    buildSkinGrid() {
+        const container = document.getElementById('skin-grid-container');
+        container.innerHTML = '';
+        const allSkins = ['green', 'blue', 'red', 'gold'];
+        
+        allSkins.forEach(id => {
+            const skin = Game.getDefaultSkin(id);
+            const isUnlocked = Game.unlockedSkins.includes(id);
+            const isSelected = Game.selectedSkin.id === id;
+            
+            const div = document.createElement('div');
+            div.style.width = '60px'; div.style.height = '60px';
+            div.style.border = `2px solid ${isSelected ? '#e94560' : '#4e4e6a'}`;
+            div.style.opacity = isUnlocked ? '1' : '0.3';
+            div.style.cursor = isUnlocked ? 'pointer' : 'not-allowed';
+            div.style.display = 'flex'; div.style.alignItems = 'center'; div.style.justifyContent = 'center';
+            
+            const c = document.createElement('canvas');
+            c.width = 40; c.height = 40;
+            const cx = c.getContext('2d');
+            cx.fillStyle = skin.body; cx.fillRect(10, 10, 20, 20);
+            cx.strokeStyle = skin.outline; cx.lineWidth = 3; cx.strokeRect(10, 10, 20, 20);
+            div.appendChild(c);
+
+            if (isUnlocked) {
+                div.onclick = () => {
+                    Game.selectedSkin = skin;
+                    Storage.set('ms_skins_selected', skin);
+                    this.buildSkinGrid();
+                };
+            }
+            container.appendChild(div);
+        });
+    }
+};
+
+// Start the game!
+Game.init();
+</script>
+</body>
+</html>
